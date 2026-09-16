@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Easy 3D Voxel Bird</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #87CEEB; /* Light Sky Blue */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none; /* Prevent browser scrolling on touch */
+        }
+
+        #game-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            z-index: 10;
+        }
+
+        #score-board {
+            font-size: 5rem;
+            font-weight: 900;
+            color: white;
+            text-shadow: 0px 4px 10px rgba(0,0,0,0.5), 2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000;
+            margin-top: 10vh;
+            transition: transform 0.1s ease-in-out;
+        }
+
+        .score-pop {
+            transform: scale(1.2);
+        }
+
+        #menu {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(135deg, rgba(255,255,255,0.95), rgba(240,240,240,0.9));
+            padding: 3rem 4rem;
+            border-radius: 24px;
+            border: 4px solid #fff;
+            text-align: center;
+            pointer-events: auto;
+            z-index: 20;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+            backdrop-filter: blur(5px);
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .play-btn {
+            background: linear-gradient(to bottom, #4CAF50, #2E7D32);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            padding: 15px 40px;
+            font-size: 2rem;
+            font-weight: 900;
+            cursor: pointer;
+            text-transform: uppercase;
+            box-shadow: 0 6px 0 #1B5E20, 0 10px 20px rgba(0,0,0,0.3);
+            transition: all 0.1s;
+        }
+
+        .play-btn:active {
+            transform: translateY(6px);
+            box-shadow: 0 0px 0 #1B5E20, 0 4px 10px rgba(0,0,0,0.3);
+        }
+
+        .title {
+            font-size: 3rem;
+            color: #333;
+            margin-bottom: 0.5rem;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+        
+        .instructions {
+            color: #666;
+            font-size: 1.2rem;
+            margin-bottom: 2rem;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container"></div>
+    
+    <div id="ui-layer">
+        <div id="score-board">0</div>
+    </div>
+
+    <div id="menu">
+        <h1 class="title" id="menu-title">Steve Bird</h1>
+        <p class="instructions" id="menu-desc">Tap, Click, or Space to Fly!</p>
+        <button class="play-btn" id="start-btn">PLAY</button>
+    </div>
+
+    <script>
+        const container = document.getElementById('game-container');
+        const scoreBoard = document.getElementById('score-board');
+        const menu = document.getElementById('menu');
+        const startBtn = document.getElementById('start-btn');
+        const menuTitle = document.getElementById('menu-title');
+        const menuDesc = document.getElementById('menu-desc');
+
+        // Scene setup
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x73C2FB); // Vibrant Sky Blue
+        scene.fog = new THREE.Fog(0x73C2FB, 20, 60);
+
+        // Camera setup - slightly angled to show 3D depth better
+        const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 150);
+        camera.position.set(0, 5, 18);
+        camera.lookAt(0, 5, 0);
+
+        // Renderer setup with shadows
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Limit pixel ratio for performance
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap; // High quality soft shadows
+        container.appendChild(renderer.domElement);
+
+        // Ambient light for general illumination
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+
+        // Directional "Sun" light casting soft shadows
+        const sunLight = new THREE.DirectionalLight(0xffffff, 0.9);
+        sunLight.position.set(15, 30, 20);
+        sunLight.castShadow = true;
+        // Increase shadow resolution and area
+        sunLight.shadow.mapSize.width = 2048;
+        sunLight.shadow.mapSize.height = 2048;
+        sunLight.shadow.camera.near = 0.5;
+        sunLight.shadow.camera.far = 100;
+        const shadowSize = 25;
+        sunLight.shadow.camera.left = -shadowSize;
+        sunLight.shadow.camera.right = shadowSize;
+        sunLight.shadow.camera.top = shadowSize;
+        sunLight.shadow.camera.bottom = -shadowSize;
+        // Soften shadow edges
+        sunLight.shadow.bias = -0.0005;
+        scene.add(sunLight);
+
+        // Using MeshStandardMaterial for realistic light/shadow interaction
+        const skinMat = new THREE.MeshStandardMaterial({ color: 0xFAD6B1, roughness: 0.8 }); // Peach
+        const hairMat = new THREE.MeshStandardMaterial({ color: 0x4A3018, roughness: 0.9 }); // Brown
+        const shirtMat = new THREE.MeshStandardMaterial({ color: 0x00A8A8, roughness: 0.8 }); // Cyan
+        const pantsMat = new THREE.MeshStandardMaterial({ color: 0x3F3F96, roughness: 0.8 }); // Blue
+        const shoeMat = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.9 }); // Dark Gray
+        
+        const pipeMat = new THREE.MeshStandardMaterial({ color: 0x66CC33, roughness: 0.6, metalness: 0.1 }); // Vibrant Green
+        const groundTopMat = new THREE.MeshStandardMaterial({ color: 0x55AA33, roughness: 1.0 }); // Grass
+        const groundSideMat = new THREE.MeshStandardMaterial({ color: 0x664422, roughness: 1.0 }); // Dirt
+
+        const playerGroup = new THREE.Group();
+        const steve = new THREE.Group();
+
+        // Steve's dimensions (relative units)
+        const unit = 0.5; // Scale factor
+
+        // Head (8x8x8 pixels in MC, we use 1x1x1 relative)
+        const headGeom = new THREE.BoxGeometry(unit * 2, unit * 2, unit * 2);
+        const head = new THREE.Mesh(headGeom, skinMat);
+        head.position.y = unit * 3;
+        head.castShadow = true;
+        head.receiveShadow = true;
+        steve.add(head);
+
+        // Hair (Slightly larger than head on top)
+        const hairGeom = new THREE.BoxGeometry(unit * 2.05, unit * 0.5, unit * 2.05);
+        const hair = new THREE.Mesh(hairGeom, hairMat);
+        hair.position.y = unit;
+        hair.castShadow = true;
+        head.add(hair);
+
+        // Body (8x12x4 pixels)
+        const bodyGeom = new THREE.BoxGeometry(unit * 2, unit * 3, unit * 1);
+        const body = new THREE.Mesh(bodyGeom, shirtMat);
+        body.position.y = unit * 0.5;
+        body.castShadow = true;
+        body.receiveShadow = true;
+        steve.add(body);
+
+        // Arms (4x12x4 pixels) - Positioned on the Z-axis (sides) because he will face X
+        const armGeom = new THREE.BoxGeometry(unit * 1, unit * 3, unit * 1);
+        
+        const leftArm = new THREE.Mesh(armGeom, skinMat);
+        leftArm.position.set(0, unit * 0.5, -unit * 1.5); // Back side in side-profile
+        leftArm.castShadow = true;
+        steve.add(leftArm);
+
+        const rightArm = new THREE.Mesh(armGeom, skinMat);
+        rightArm.position.set(0, unit * 0.5, unit * 1.5); // Front side in side-profile
+        rightArm.castShadow = true;
+        steve.add(rightArm);
+
+        // Sleeves
+        const sleeveGeom = new THREE.BoxGeometry(unit * 1.05, unit * 1.5, unit * 1.05);
+        const leftSleeve = new THREE.Mesh(sleeveGeom, shirtMat);
+        leftSleeve.position.y = unit * 0.75;
+        leftArm.add(leftSleeve);
+        const rightSleeve = new THREE.Mesh(sleeveGeom, shirtMat);
+        rightSleeve.position.y = unit * 0.75;
+        rightArm.add(rightSleeve);
+
+        // Legs (4x12x4 pixels)
+        const legGeom = new THREE.BoxGeometry(unit * 1, unit * 3, unit * 1);
+        
+        const leftLeg = new THREE.Mesh(legGeom, pantsMat);
+        leftLeg.position.set(0, -unit * 2.5, -unit * 0.5);
+        leftLeg.castShadow = true;
+        steve.add(leftLeg);
+
+        const rightLeg = new THREE.Mesh(legGeom, pantsMat);
+        rightLeg.position.set(0, -unit * 2.5, unit * 0.5);
+        rightLeg.castShadow = true;
+        steve.add(rightLeg);
+
+        // Shoes
+        const shoeGeom = new THREE.BoxGeometry(unit * 1.05, unit * 0.5, unit * 1.05);
+        const leftShoe = new THREE.Mesh(shoeGeom, shoeMat);
+        leftShoe.position.y = -unit * 1.25;
+        leftLeg.add(leftShoe);
+        const rightShoe = new THREE.Mesh(shoeGeom, shoeMat);
+        rightShoe.position.y = -unit * 1.25;
+        rightLeg.add(rightShoe);
+
+        // Default BoxGeometries face forward (+Z). We need Steve to fly right (+X).
+        // If we rotate him on Y by 90 degrees, he faces +X.
+        steve.rotation.y = Math.PI / 2;
+        
+        // Slightly rotate arms/legs for a "flying/walking" dynamic pose
+        leftArm.rotation.z = -0.3;
+        rightArm.rotation.z = 0.3;
+        leftLeg.rotation.z = 0.2;
+        rightLeg.rotation.z = -0.2;
+
+        playerGroup.add(steve);
+        scene.add(playerGroup);
+
+        // Ground setup - large plane so shadows have space
+        const groundGroup = new THREE.Group();
+        
+        // Dirt base
+        const dirtGeom = new THREE.BoxGeometry(100, 10, 30);
+        const dirt = new THREE.Mesh(dirtGeom, groundSideMat);
+        dirt.position.y = -5; // Sink it down
+        dirt.receiveShadow = true;
+        groundGroup.add(dirt);
+
+        // Grass top
+        const grassGeom = new THREE.BoxGeometry(100, 1, 30);
+        const grass = new THREE.Mesh(grassGeom, groundTopMat);
+        grass.position.y = 0.5;
+        grass.receiveShadow = true;
+        groundGroup.add(grass);
+        
+        scene.add(groundGroup);
+
+        // Background Clouds (Simple blocks)
+        const cloudMat = new THREE.MeshStandardMaterial({ color: 0xFFFFFF, roughness: 1.0, transparent: true, opacity: 0.9 });
+        const clouds = [];
+        for(let i=0; i<10; i++) {
+            const w = 4 + Math.random() * 6;
+            const h = 2 + Math.random() * 2;
+            const d = 3 + Math.random() * 4;
+            const cloud = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), cloudMat);
+            cloud.position.set(
+                (Math.random() - 0.5) * 80,
+                12 + Math.random() * 8,
+                -15 - Math.random() * 10
+            );
+            cloud.receiveShadow = true; // Clouds receive shadow from sun
+            scene.add(cloud);
+            clouds.push(cloud);
+        }
+
+        let isPlaying = false;
+        let isGameOver = false;
+        let score = 0;
+        let pipes = [];
+        
+        // ***** VERY EASY DIFFICULTY SETTINGS FOR A 7-YEAR-OLD *****
+        const GRAVITY = 22; // Very gentle gravity (was 45)
+        const JUMP_STRENGTH = 11; // Floaty jump
+        const PIPE_SPEED = 4.5; // Slow moving pipes (was 8)
+        const PIPE_SPAWN_X = 25; // Spawn further off screen
+        const BIRD_START_X = -5; // Player sits slightly left of center
+        const PIPE_SPAWN_INTERVAL = 3.5; // Lots of time between pipes
+        
+        let velocityY = 0;
+        let lastTime = performance.now();
+        let pipeSpawnTimer = 0;
+
+        // Collision Boxes
+        const playerBox = new THREE.Box3();
+        const pipeBoxTop = new THREE.Box3();
+        const pipeBoxBottom = new THREE.Box3();
+
+        function createPipe() {
+            // Massive gaps for easy playability
+            const gapSize = 8.5 + Math.random() * 2.5; 
+            const minBottomHeight = 2;
+            const maxBottomHeight = 7;
+            const bottomHeight = minBottomHeight + Math.random() * (maxBottomHeight - minBottomHeight);
+            const topHeight = 25; // Extends way above screen
+
+            const pipeGroup = new THREE.Group();
+            
+            // Generate standard blocky pipes
+            const pipeWidth = 3;
+            const pipeDepth = 3;
+            
+            // Bottom pipe
+            const bottomGeom = new THREE.BoxGeometry(pipeWidth, bottomHeight, pipeDepth);
+            const bottomPipe = new THREE.Mesh(bottomGeom, pipeMat);
+            bottomPipe.position.y = bottomHeight / 2 + 1; // +1 to sit right on top of grass
+            bottomPipe.castShadow = true;
+            bottomPipe.receiveShadow = true;
+            pipeGroup.add(bottomPipe);
+
+            // Top pipe
+            const topGeom = new THREE.BoxGeometry(pipeWidth, topHeight, pipeDepth);
+            const topPipe = new THREE.Mesh(topGeom, pipeMat);
+            // Positioned above bottom pipe + gap
+            topPipe.position.y = bottomHeight + 1 + gapSize + (topHeight / 2);
+            topPipe.castShadow = true;
+            topPipe.receiveShadow = true;
+            pipeGroup.add(topPipe);
+
+            pipeGroup.position.x = PIPE_SPAWN_X;
+            scene.add(pipeGroup);
+
+            return {
+                group: pipeGroup,
+                bottom: bottomPipe,
+                top: topPipe,
+                passed: false
+            };
+        }
+
+        function jump() {
+            if (!isPlaying && !isGameOver) return;
+            if (isGameOver) return;
+            velocityY = JUMP_STRENGTH;
+        }
+
+        // Handle all input types easily
+        function handleInput(e) {
+            // Prevent default behavior to stop double firing on touch devices
+            if(e.type !== 'keydown') {
+                if(e.target === startBtn) return;
+            }
+            
+            if (e.type === 'keydown' && e.code !== 'Space') return;
+
+            if(!isPlaying && !isGameOver) {
+                startGame();
+            } else if(isPlaying) {
+                jump();
+            }
+        }
+
+        window.addEventListener('keydown', handleInput);
+        window.addEventListener('mousedown', handleInput);
+        window.addEventListener('touchstart', handleInput, {passive: false});
+        startBtn.addEventListener('click', startGame);
+
+        function resetGame() {
+            // Cleanup old pipes
+            pipes.forEach(p => scene.remove(p.group));
+            pipes = [];
+            
+            // Reset Steve
+            playerGroup.position.set(BIRD_START_X, 8, 0);
+            playerGroup.rotation.z = 0;
+            velocityY = 0;
+            
+            // Reset Stats
+            score = 0;
+            scoreBoard.innerText = score;
+            pipeSpawnTimer = PIPE_SPAWN_INTERVAL; // Force spawn immediately
+            lastTime = performance.now();
+            
+            // Hide UI
+            menu.classList.add('hidden');
+            scoreBoard.classList.remove('hidden');
+        }
+
+        function startGame() {
+            resetGame();
+            isPlaying = true;
+            isGameOver = false;
+            jump(); // Initial jump off the starting line
+        }
+
+        function gameOver() {
+            isPlaying = false;
+            isGameOver = true;
+            
+            menuTitle.innerText = "Game Over!";
+            menuTitle.style.color = "#E53935"; // Red
+            menuDesc.innerText = `You scored ${score} points!`;
+            startBtn.innerText = "PLAY AGAIN";
+            
+            // Small delay so they don't accidentally restart instantly
+            setTimeout(() => {
+                menu.classList.remove('hidden');
+            }, 500);
+        }
+
+        function updateScore() {
+            score++;
+            scoreBoard.innerText = score;
+            
+            // Pop animation
+            scoreBoard.classList.add('score-pop');
+            setTimeout(() => {
+                scoreBoard.classList.remove('score-pop');
+            }, 100);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const currentTime = performance.now();
+            const dt = Math.min((currentTime - lastTime) / 1000, 0.05); // Cap delta time
+            lastTime = currentTime;
+
+            if (isPlaying) {
+                // Apply Gravity
+                velocityY -= GRAVITY * dt;
+                playerGroup.position.y += velocityY * dt;
+
+                // Steve tilting animation (gentle tilt based on velocity)
+                // Since Steve is facing +X, tilting his nose up means rotating around +Z
+                const targetRotation = Math.max(-Math.PI / 4, Math.min(Math.PI / 6, velocityY * 0.05));
+                // Smoothly interpolate rotation
+                playerGroup.rotation.z += (targetRotation - playerGroup.rotation.z) * 10 * dt;
+
+                // Update Steve's Hitbox (Forgiving)
+                playerBox.setFromObject(playerGroup);
+                // SHINK HITBOX significantly to make it very forgiving for kids
+                playerBox.expandByScalar(-0.4); 
+
+                // Floor Collision Check (Grass top is at y = 1)
+                if (playerGroup.position.y <= 2.5) { // Stop slightly above floor center
+                    playerGroup.position.y = 2.5;
+                    gameOver();
+                }
+                // Ceiling Check (Invisible roof)
+                if (playerGroup.position.y >= 20) {
+                    playerGroup.position.y = 20;
+                    velocityY = 0;
+                }
+
+                // Pipe Spawning & Movement
+                pipeSpawnTimer += dt;
+                if (pipeSpawnTimer >= PIPE_SPAWN_INTERVAL) {
+                    pipes.push(createPipe());
+                    pipeSpawnTimer = 0;
+                }
+
+                for (let i = pipes.length - 1; i >= 0; i--) {
+                    const p = pipes[i];
+                    p.group.position.x -= PIPE_SPEED * dt;
+
+                    // Collision Check
+                    pipeBoxTop.setFromObject(p.top);
+                    pipeBoxBottom.setFromObject(p.bottom);
+                    
+                    if (playerBox.intersectsBox(pipeBoxTop) || playerBox.intersectsBox(pipeBoxBottom)) {
+                        gameOver();
+                    }
+
+                    // Score Tracking
+                    if (!p.passed && p.group.position.x < BIRD_START_X) {
+                        p.passed = true;
+                        updateScore();
+                    }
+
+                    // Garbage Collection
+                    if (p.group.position.x < -15) {
+                        scene.remove(p.group);
+                        pipes.splice(i, 1);
+                    }
+                }
+
+                // Scroll the ground for infinite movement illusion
+                groundGroup.position.x -= PIPE_SPEED * dt;
+                if(groundGroup.position.x <= -20) {
+                    groundGroup.position.x += 20; // Reset position cleanly
+                }
+            }
+
+            // Animate clouds regardless of play state
+            clouds.forEach(cloud => {
+                cloud.position.x -= (PIPE_SPEED * 0.05) * dt;
+                if(cloud.position.x < -50) cloud.position.x = 50;
+            });
+
+            // Render scene
+            renderer.render(scene, camera);
+        }
+
+        // Position Steve at start for the menu screen
+        playerGroup.position.set(BIRD_START_X, 8, 0);
+
+        // Handle window resizing
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Start loop
+        animate();
+    </script>
+</body>
+</html>
